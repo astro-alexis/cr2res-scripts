@@ -192,7 +192,6 @@ for ic in range(3):
         ka,kb = [i for i in data.keys() if np.logical_and(len(i) == 3, 'A' in i) ], [i for i in data.keys() if np.logical_and(len(i) == 3, 'B' in i) ]
         meanIA,meanIB = sum(data[item] for item in ka)/8.,sum(data[item] for item in kb)/8.
         meanEIA,meanEIB = sum(data['e'+item]**2. for item in ka)**0.5 ,sum(data['e'+item]**2. for item in kb)**0.5
-        snrA, snrB = np.nanpercentile(meanIA/meanEIA,98),np.nanpercentile(meanIA/meanEIA,98)
         mask = np.ones((len(meanEIA)))
         mask[np.where(np.isnan(meanIA))] = 2
         mask[np.where(np.isnan(meanIB))] = 2
@@ -229,7 +228,7 @@ for ic in range(3):
         data['NULL_B'] = (RNB**0.25 -1.) / (RNB**0.25 +1.) # null spectrum
 
         keysA, keysB = [i for i in data.keys() if np.logical_and(len(i)==3, 'A' in i)],[i for i in data.keys() if np.logical_and(len(i)==3, 'B' in i)]
-        data['INTENS_A'], data['INTENS_B'] = sum(data[item] for item in keysA)/8., sum(data[item] for item in keysB)/8.
+        data['INTENS_A'], data['INTENS_B'] = sum(data[item] for item in keysA), sum(data[item] for item in keysB)
         keysA, keysB = [i for i in data.keys() if np.logical_and('e' in i, 'A' in i)],[i for i in data.keys() if np.logical_and('e' in i, 'B' in i)]
         data['ERR_A'], data['ERR_B'] = np.sqrt(sum(data[item]**2. for item in keysA)), np.sqrt(sum(data[item]**2. for item in keysB))
 
@@ -243,17 +242,19 @@ for ic in range(3):
         data['ERR_NULL_A']   = sumEA * 0.5 * RNA / (RNA+1.)**2. # Error spectrum on the null
         data['ERR_NULL_B']   = sumEB * 0.5 * RNB / (RNB+1.)**2. # Error spectrum on the null
 
+        snrA, snrB = np.append(snrA, np.nanpercentile(data['INTENS_A']/data['ERR_A'],98)), np.append(snrB,np.nanpercentile(data['INTENS_B']/data['ERR_B'],98))
+        print("SNRA,SNRB = {:.1f},{:.1f}".format(np.nanpercentile(data['INTENS_A']/data['ERR_A'],98),np.nanpercentile(data['INTENS_B']/data['ERR_B'],98)))
         PAB = np.abs(np.append(data['STOKES_A'],data['STOKES_B']))
         PABlim = np.nanpercentile(PAB, 99.5)*1.5
-        IAB = np.append(data['INTENS_B'],data['INTENS_B'])
+        IAB = np.append(data['INTENS_B']/8.,data['INTENS_B']/8.)
         IABlim = np.nanpercentile(IAB, 99)*1.2
         key = [i for i in data.keys() if len(i) == 3]
         for k in key:
             if k[0] == 'A': col = c1
             else: col = c4 
             ax[0].plot(data['WL_'+k[0:1]][pp], data[k][pp], color=col,alpha=0.2)
-        ax[0].plot(data['WL_A'][pp], data['INTENS_A'][pp], color=c0)
-        ax[0].plot(data['WL_B'][pp], data['INTENS_B'][pp], color=c5)
+        ax[0].plot(data['WL_A'][pp], data['INTENS_A'][pp]/8., color=c0)
+        ax[0].plot(data['WL_B'][pp], data['INTENS_B'][pp]/8., color=c5)
         ax[0].hlines(1, np.min(data['WL_A'][pp]), np.max(data['WL_A'][pp]), linestyle='dashed', linewidth=1, color="C1", zorder=10)
         ax[1].plot(data['WL_A'][pp], data['STOKES_A'][pp], color=c1, alpha=0.8)
         ax[1].fill_between(data['WL_A'][pp], data['STOKES_A'][pp]-0.5*data['ERR_STOKES_A'][pp],data['STOKES_A'][pp]+0.5*data['ERR_STOKES_A'][pp], color=c1, alpha=0.2)
@@ -266,10 +267,10 @@ for ic in range(3):
         ax[1].set_ylim(-PABlim,PABlim),ax[2].set_ylim(-PABlim,PABlim),ax[0].set_ylim(-0.1,IABlim)
         ax[2].set_xlabel('Wavelength [nm]'), ax[2].set_ylabel('Null spectrum')
         ax[1].set_ylabel('Stokes ' +'$' + A1u[0].header["HIERARCH ESO INS POL TYPE"]+'$/$I$'),ax[0].set_ylabel('Stokes $I$')
-        plt.savefig('plot-demodulation_order'+str(io)+'-det' + str(ic) + '.png')
+        plt.savefig('plot-demodulation_det'+str(ic+1)+'-order'+str(orders[io][0:2])+ '.png')
         plt.close()
 
 print("SNR A")
-print(snrA)
+print(np.median(snrA))
 print("SNR B")
-print(snrB)
+print(npmedian(snrB))
