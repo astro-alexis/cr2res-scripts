@@ -12,28 +12,62 @@ np.seterr(divide='ignore', invalid='ignore')
 
 plt.rcParams['text.usetex'] = False
 
+def compute_jd(header):
+    print('List of raw files')
+    frawA1,frawA2 = fits.open(header['HIERARCH ESO PRO REC1 RAW1 NAME']), fits.open(header['HIERARCH ESO PRO REC1 RAW2 NAME'])
+    frawA3,frawA4 = fits.open(header['HIERARCH ESO PRO REC1 RAW3 NAME']), fits.open(header['HIERARCH ESO PRO REC1 RAW4 NAME'])
+    frawB1,frawB2 = fits.open(header['HIERARCH ESO PRO REC1 RAW5 NAME']), fits.open(header['HIERARCH ESO PRO REC1 RAW6 NAME'])
+    frawB3,frawB4 = fits.open(header['HIERARCH ESO PRO REC1 RAW7 NAME']), fits.open(header['HIERARCH ESO PRO REC1 RAW8 NAME'])
+    print(header['HIERARCH ESO PRO REC1 RAW1 NAME'] + '\t' + frawA1[0].header['HIERARCH ESO SEQ NODPOS'])
+    print(header['HIERARCH ESO PRO REC1 RAW2 NAME'] + '\t' + frawA2[0].header['HIERARCH ESO SEQ NODPOS'])
+    print(header['HIERARCH ESO PRO REC1 RAW3 NAME'] + '\t' + frawA3[0].header['HIERARCH ESO SEQ NODPOS'])
+    print(header['HIERARCH ESO PRO REC1 RAW4 NAME'] + '\t' + frawA4[0].header['HIERARCH ESO SEQ NODPOS'])
+    print(header['HIERARCH ESO PRO REC1 RAW5 NAME'] + '\t' + frawB1[0].header['HIERARCH ESO SEQ NODPOS'])
+    print(header['HIERARCH ESO PRO REC1 RAW6 NAME'] + '\t' + frawB2[0].header['HIERARCH ESO SEQ NODPOS'])
+    print(header['HIERARCH ESO PRO REC1 RAW7 NAME'] + '\t' + frawB3[0].header['HIERARCH ESO SEQ NODPOS'])
+    print(header['HIERARCH ESO PRO REC1 RAW8 NAME'] + '\t' + frawB4[0].header['HIERARCH ESO SEQ NODPOS']+'\n')
+    dit, ndit, nexpo = frawA1[0].header['HIERARCH ESO DET SEQ1 DIT'], frawA1[0].header['HIERARCH ESO DET NDIT'], frawA1[0].header['HIERARCH ESO SEQ NEXPO']
+    mjdA1, mjdA2, mjdA4 = frawA1[0].header['MJD-OBS'], frawA2[0].header['MJD-OBS'], frawA4[0].header['MJD-OBS']
+    mjdB1, mjdB4 = frawB1[0].header['MJD-OBS'],frawB4[0].header['MJD-OBS']
+    expt = (dit*ndit)/(24*3600.)
+    mjdMeanA = (mjdA4 + expt + mjdA1)/2.
+    mjdMeanB = (mjdB4 + expt + mjdB1)/2.
+    print('------')
+    print('Computing mean MJDs for A and B nodding positions')
+    print('\t\t\tMJD_A \t\t MJD_B')
+    print('\t\t\t{:.8f} \t {:.8f}'.format(mjdMeanA,mjdMeanB))
+
+    print()
+    print('Sanity check')
+    print('MJD_A2 - MJD_A1: \t{:.2f} s'.format((mjdA2-mjdA1)*24.*3600.))
+    print('subexposure exptime: \t{:.2f} s'.format(ndit*dit))
+    print('MJD_B1 - MJD_A1: \t{:.2f} s'.format((mjdB1-mjdA1)*24.*3600.))
+    print('MJD_B  - MJD_A:  \t{:.2f} s'.format((mjdMeanB-mjdMeanA)*24.*3600.))
+    print('------')
+    return mjdMeanA,mjdMeanB
+
 def mincrosscol(params,w1,s1,wref,sref, eref):
-        scale,offset = params[0],params[1]
-        ii = ~np.isnan(eref)
-        w1,s1,wref,sref,eref = w1[ii],s1[ii],wref[ii],sref[ii],eref[ii]
-        ii = ~np.isnan(sref)
-        w1,s1,wref,sref,eref = w1[ii],s1[ii],wref[ii],sref[ii],eref[ii]
-        ii = ~np.isnan(s1)
-        w1,s1,wref,sref,eref = w1[ii],s1[ii],wref[ii],sref[ii],eref[ii]
-        ii = np.where(eref != 0)
-        w1,s1,wref,sref,eref = w1[ii],s1[ii],wref[ii],sref[ii],eref[ii]
-        w1n = w1 + offset
-        s1 = s1 * scale
-        f1 = interpolate.interp1d(w1n, s1, bounds_error=False, fill_value="extrapolate")
-        s1i = f1(wref)
-        return (np.sum( (s1i-sref)**2./eref**2 ))
+    scale,offset = params[0],params[1]
+    ii = ~np.isnan(eref)
+    w1,s1,wref,sref,eref = w1[ii],s1[ii],wref[ii],sref[ii],eref[ii]
+    ii = ~np.isnan(sref)
+    w1,s1,wref,sref,eref = w1[ii],s1[ii],wref[ii],sref[ii],eref[ii]
+    ii = ~np.isnan(s1)
+    w1,s1,wref,sref,eref = w1[ii],s1[ii],wref[ii],sref[ii],eref[ii]
+    ii = np.where(eref != 0)
+    w1,s1,wref,sref,eref = w1[ii],s1[ii],wref[ii],sref[ii],eref[ii]
+    w1n = w1 + offset
+    s1 = s1 * scale
+    f1 = interpolate.interp1d(w1n, s1, bounds_error=False, fill_value="extrapolate")
+    s1i = f1(wref)
+    return (np.sum( (s1i-sref)**2./eref**2 ))
 
 def gen_corr_spec(w,wref,s,scale,offset):
-        w += offset
-        s = s * scale
-        f = interpolate.interp1d(w,s, bounds_error=False, fill_value="extrapolate")
-        s1 = f(wref)
-        return s1
+    w += offset
+    s = s * scale
+    f = interpolate.interp1d(w,s, bounds_error=False, fill_value="extrapolate")
+    s1 = f(wref)
+    return s1
 
 def FitCon(
     wave,
@@ -83,6 +117,9 @@ c4 = '#3288bd'
 c5 = '#5e4fa2'
 np.seterr(invalid='ignore')
 
+print('')
+print('------')
+print('Demodulation of extracted polarimetric sub-exposures')
 # Open files
 A1d = fits.open('cr2res_obs_pol_extractedA_1d.fits')
 A1u = fits.open('cr2res_obs_pol_extractedA_1u.fits')
@@ -101,11 +138,21 @@ B3u = fits.open('cr2res_obs_pol_extractedB_3u.fits')
 B4d = fits.open('cr2res_obs_pol_extractedB_4d.fits')
 B4u = fits.open('cr2res_obs_pol_extractedB_4u.fits')
 
+print('Target: \t\t' + A1d[0].header['OBJECT'])
+print('Date of 1st subexp: \t' + A1d[0].header['DATE-OBS'])
+print('Wavelength setting: \t' + A1d[0].header['HIERARCH ESO INS WLEN ID'])
+print('Stokes parameter: \t' + A1d[0].header['HIERARCH ESO INS POL TYPE'])
+print('NDIT x DIT: \t\t' + str(A1d[0].header['HIERARCH ESO DET NDIT'])+' x '+ str(A1d[0].header['HIERARCH ESO DET SEQ1 DIT'])+' s')
+print('')
+JDA,JDB = compute_jd(A1d[0].header)
 
 pp = np.arange(20,2028)
 chips = ['CHIP1.INT1','CHIP2.INT1','CHIP3.INT1']
+snrA,snrB = np.array([]), np.array([])
+print('Starting demodulation')
 # Loop on detectors
 for ic in range(3):
+    print('Detector '+ chips[ic])
     ch = chips[ic]
     # find orders in up and down frames
     o1 = [nam[0:-2] for nam in A1d[ch].data.names if "WL" in nam]
@@ -113,7 +160,7 @@ for ic in range(3):
     orders = np.intersect1d(o1,o2)
     # loop on orders
     for io in range(len(orders)):
-        print('detector: ' + str(ic) + ' order: ' + str(io))
+        print('Order: ' + orders[io][0:2])
         data = {'A1u' : np.empty(2048)}
         fig,ax = plt.subplots(3, figsize=(14,10)) 
         order = orders[io]
@@ -145,6 +192,7 @@ for ic in range(3):
         ka,kb = [i for i in data.keys() if np.logical_and(len(i) == 3, 'A' in i) ], [i for i in data.keys() if np.logical_and(len(i) == 3, 'B' in i) ]
         meanIA,meanIB = sum(data[item] for item in ka)/8.,sum(data[item] for item in kb)/8.
         meanEIA,meanEIB = sum(data['e'+item]**2. for item in ka)**0.5 ,sum(data['e'+item]**2. for item in kb)**0.5
+        snrA, snrB = np.nanpercentile(meanIA/meanEIA,98),np.nanpercentile(meanIA/meanEIA,98)
         mask = np.ones((len(meanEIA)))
         mask[np.where(np.isnan(meanIA))] = 2
         mask[np.where(np.isnan(meanIB))] = 2
@@ -155,8 +203,8 @@ for ic in range(3):
         mask[0:100] = 2
         mask[-100:-1] = 2
         mask=mask.astype(int)
-        coefA,cIA,fmA,idxA = FitCon(data['WL_A'],meanIA,deg=3,niter=50,sig=meanEIA,swin=7,k1=1,k2=3,mask=mask)
-        coefB,cIB,fMB,idxB = FitCon(data['WL_B'],meanIB,deg=3,niter=50,sig=meanEIB,swin=7,k1=1,k2=3,mask=mask)
+#        coefA,cIA,fmA,idxA = FitCon(data['WL_A'],meanIA,deg=3,niter=50,sig=meanEIA,swin=7,k1=1,k2=3,mask=mask)
+#        coefB,cIB,fMB,idxB = FitCon(data['WL_B'],meanIB,deg=3,niter=50,sig=meanEIB,swin=7,k1=1,k2=3,mask=mask)
 
         for k in ka:
             res = least_squares(mincrosscol, [1.,0.], args=(data['WL_A'][20:-20],data[k][20:-20],data['WL_A'][20:-20],meanIA[20:-20],data['e'+k][20:-20]),verbose=0, max_nfev=2500)
@@ -220,3 +268,8 @@ for ic in range(3):
         ax[1].set_ylabel('Stokes ' +'$' + A1u[0].header["HIERARCH ESO INS POL TYPE"]+'$/$I$'),ax[0].set_ylabel('Stokes $I$')
         plt.savefig('plot-demodulation_order'+str(io)+'-det' + str(ic) + '.png')
         plt.close()
+
+print("SNR A")
+print(snrA)
+print("SNR B")
+print(snrB)
