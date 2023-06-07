@@ -1,3 +1,9 @@
+# cr2res_demodulate.py
+# demodulation of extracted CRIRES+ spectropolarimetry data
+# python3 cr2res_demodulate.py should be run in a directory
+# where the cr2res_obs_pol recipe has been run with the
+# --save_group=1 option
+
 #!/usr/bin/env python3
 import os,sys
 import numpy as np
@@ -46,28 +52,17 @@ def compute_jd(header):
     print('------')
     return mjdMeanA,mjdMeanB
 
-def mincrosscol(params,w1,s1,wref,sref, eref):
-    scale,offset = params[0],params[1]
+def mincrosscol(scale,w1,s1,sref, eref):
     ii = ~np.isnan(eref)
-    w1,s1,wref,sref,eref = w1[ii],s1[ii],wref[ii],sref[ii],eref[ii]
+    w1,s1,sref,eref = w1[ii],s1[ii],sref[ii],eref[ii]
     ii = ~np.isnan(sref)
-    w1,s1,wref,sref,eref = w1[ii],s1[ii],wref[ii],sref[ii],eref[ii]
+    w1,s1,sref,eref = w1[ii],s1[ii],sref[ii],eref[ii]
     ii = ~np.isnan(s1)
-    w1,s1,wref,sref,eref = w1[ii],s1[ii],wref[ii],sref[ii],eref[ii]
+    w1,s1,sref,eref = w1[ii],s1[ii],sref[ii],eref[ii]
     ii = np.where(eref != 0)
-    w1,s1,wref,sref,eref = w1[ii],s1[ii],wref[ii],sref[ii],eref[ii]
-    w1n = w1 + offset
+    w1,s1,sref,eref = w1[ii],s1[ii],sref[ii],eref[ii]
     s1 = s1 * scale
-    f1 = interpolate.interp1d(w1n, s1, bounds_error=False, fill_value="extrapolate")
-    s1i = f1(wref)
-    return (np.sum( (s1i-sref)**2./eref**2 ))
-
-def gen_corr_spec(w,wref,s,scale,offset):
-    w += offset
-    s = s * scale
-    f = interpolate.interp1d(w,s, bounds_error=False, fill_value="extrapolate")
-    s1 = f(wref)
-    return s1
+    return (np.nansum( (s1-sref)**2./eref**2 ))
 
 def FitCon(
     wave,
@@ -107,6 +102,7 @@ def FitCon(
     return coeff, con,fmean, idx
 
 
+# MAIN CODE STARTS HERE
 
 # Colorbrewer colours for plot. Red-blue
 c0 = "#9e0142"
@@ -120,6 +116,7 @@ np.seterr(invalid='ignore')
 print('')
 print('------')
 print('Demodulation of extracted polarimetric sub-exposures')
+
 # Open files
 A1d = fits.open('cr2res_obs_pol_extractedA_1d.fits')
 A1u = fits.open('cr2res_obs_pol_extractedA_1u.fits')
@@ -144,11 +141,14 @@ print('Wavelength setting: \t' + A1d[0].header['HIERARCH ESO INS WLEN ID'])
 print('Stokes parameter: \t' + A1d[0].header['HIERARCH ESO INS POL TYPE'])
 print('NDIT x DIT: \t\t' + str(A1d[0].header['HIERARCH ESO DET NDIT'])+' x '+ str(A1d[0].header['HIERARCH ESO DET SEQ1 DIT'])+' s')
 print('')
+# JDA and JDB are the mean julian dates for A and B subpexposures
 JDA,JDB = compute_jd(A1d[0].header)
 
 pp = np.arange(20,2028)
+
 chips = ['CHIP1.INT1','CHIP2.INT1','CHIP3.INT1']
 snrA,snrB = np.array([]), np.array([])
+
 print('Starting demodulation')
 # Loop on detectors
 for ic in range(3):
@@ -157,7 +157,8 @@ for ic in range(3):
     # find orders in up and down frames
     o1 = [nam[0:-2] for nam in A1d[ch].data.names if "WL" in nam]
     o2 = [nam[0:-2] for nam in B1u[ch].data.names if "WL" in nam]
-    orders = np.intersect1d(o1,o2)
+    orders = np.intersect1d(o1,o2) # only work on orders which are found in up and down frames
+
     # loop on orders
     for io in range(len(orders)):
         print('Order: ' + orders[io][0:2])
@@ -170,6 +171,7 @@ for ic in range(3):
         data['B1u'],data['B2u'],data['B3u'],data['B4u'] = B1u[ch].data[order+'SPEC'],B2u[ch].data[order+'SPEC'],B3u[ch].data[order+'SPEC'],B4u[ch].data[order+'SPEC']
         data['A1d'],data['A2d'],data['A3d'],data['A4d'] = A1d[ch].data[order+'SPEC'],A2d[ch].data[order+'SPEC'],A3d[ch].data[order+'SPEC'],A4d[ch].data[order+'SPEC']
         data['B1d'],data['B2d'],data['B3d'],data['B4d'] = B1d[ch].data[order+'SPEC'],B2d[ch].data[order+'SPEC'],B3d[ch].data[order+'SPEC'],B4d[ch].data[order+'SPEC']
+
         # Load all the error spectra: u for up beam, d for down, 1234 are subexposure number, AB are nodding position
         data['eA1u'],data['eA2u'],data['eA3u'],data['eA4u'] = A1u[ch].data[order+'ERR'],A2u[ch].data[order+'ERR'],A3u[ch].data[order+'ERR'],A4u[ch].data[order+'ERR']
         data['eB1u'],data['eB2u'],data['eB3u'],data['eB4u'] = B1u[ch].data[order+'ERR'],B2u[ch].data[order+'ERR'],B3u[ch].data[order+'ERR'],B4u[ch].data[order+'ERR']
@@ -182,7 +184,7 @@ for ic in range(3):
         data['WL_B'] = B1u[ch].data[order+'WL']
         data['wl_dB']  = B1d[ch].data[order+"WL"]
 
-        keys = [i for i in data.keys() if np.logical_and('d' in i, 'wl' not in i)]
+        keys = [i for i in data.keys() if np.logical_and('d' in i, 'wl' not in i)] # find down spectra
         # Interpolate down on up for spectra and err spectra
         for beam in keys:
             if 'A' in beam: wlref,wld = "WL_A", "wl_dA"
@@ -206,10 +208,10 @@ for ic in range(3):
 #        coefB,cIB,fMB,idxB = FitCon(data['WL_B'],meanIB,deg=3,niter=50,sig=meanEIB,swin=7,k1=1,k2=3,mask=mask)
 
         for k in ka:
-            res = least_squares(mincrosscol, [1.,0.], args=(data['WL_A'][20:-20],data[k][20:-20],data['WL_A'][20:-20],meanIA[20:-20],data['e'+k][20:-20]),verbose=0, max_nfev=2500)
+            res = least_squares(mincrosscol, [1.], args=(data['WL_A'][20:-20],data[k][20:-20],meanIA[20:-20],data['e'+k][20:-20]),verbose=0, max_nfev=2500)
             data[k], data['e'+k] = data[k]*res.x[0]/1., data['e'+k]*res.x[0]/1.
         for k in kb:
-            res = least_squares(mincrosscol, [1.,0.], args=(data['WL_B'][20:-20],data[k][20:-20],data['WL_B'][20:-20],meanIB[20:-20],data['e'+k][20:-20]),verbose=0, max_nfev=2500)
+            res = least_squares(mincrosscol, [1.], args=(data['WL_B'][20:-20],data[k][20:-20],meanIB[20:-20],data['e'+k][20:-20]),verbose=0, max_nfev=2500)
             data[k], data['e'+k] = data[k]*res.x[0]/1., data['e'+k]*res.x[0]/1.
 
         # Demodulate with ratio method for A and B
@@ -267,10 +269,10 @@ for ic in range(3):
         ax[1].set_ylim(-PABlim,PABlim),ax[2].set_ylim(-PABlim,PABlim),ax[0].set_ylim(-0.1,IABlim)
         ax[2].set_xlabel('Wavelength [nm]'), ax[2].set_ylabel('Null spectrum')
         ax[1].set_ylabel('Stokes ' +'$' + A1u[0].header["HIERARCH ESO INS POL TYPE"]+'$/$I$'),ax[0].set_ylabel('Stokes $I$')
-        plt.savefig('plot-demodulation_det'+str(ic+1)+'-order'+str(orders[io][0:2])+ '.png')
+        plt.savefig('plot-demodulation_order'+str(orders[io][0:2])+'-det'+str(ic+1)+'.png')
         plt.close()
 
 print("SNR A")
 print(np.median(snrA))
 print("SNR B")
-print(npmedian(snrB))
+print(np.median(snrB))
