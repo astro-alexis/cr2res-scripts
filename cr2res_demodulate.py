@@ -135,6 +135,9 @@ B3u = fits.open('cr2res_obs_pol_extractedB_3u.fits')
 B4d = fits.open('cr2res_obs_pol_extractedB_4d.fits')
 B4u = fits.open('cr2res_obs_pol_extractedB_4u.fits')
 
+# prepare output fits file
+primary_hdu = A1d[0] # keep primary HDU with header
+hdul_output = fits.HDUList([primary_hdu]) # initialize output HDU list with primary HDU
 print('Target: \t\t' + A1d[0].header['OBJECT'])
 print('Date of 1st subexp: \t' + A1d[0].header['DATE-OBS'])
 print('Wavelength setting: \t' + A1d[0].header['HIERARCH ESO INS WLEN ID'])
@@ -148,6 +151,7 @@ pp = np.arange(20,2028)
 
 chips = ['CHIP1.INT1','CHIP2.INT1','CHIP3.INT1']
 snrA,snrB = np.array([]), np.array([])
+chip = 0
 
 print('Starting demodulation')
 # Loop on detectors
@@ -272,7 +276,45 @@ for ic in range(3):
         plt.savefig('plot-demodulation_order'+str(orders[io][0:2])+'-det'+str(ic+1)+'.png')
         plt.close()
 
+        data['CHIP'],data['ORDER'],data['DET'] = data['WL_A'] * 0 + chip, data['WL_A'] * 0 + int(orders[io][0:2]), data['WL_A'] * 0 + ic+1
+        # Save data in a dict global to all segments
+        keys_wanted = ['WL_A','WL_B','STOKES_A','STOKES_B', 'INTENS_A','INTENS_B',
+                           'NULL_A','NULL_B','ERR_STOKES_A','ERR_STOKES_B','ERR_A','ERR_B',
+                           'ERR_NULL_A','ERR_NULL_B', 'CHIP', 'DET', 'ORDER']
+        if chip == 0: # if first segment, the big dictionary is isolated from 'data'
+            data_all = {key: data[key] for key in keys_wanted}
+        else: # after that, let's concatenate
+            data_buffer = {key: data[key] for key in keys_wanted}
+            ds = [data_all, data_buffer]
+            d = {}
+            for k in data_all.keys():
+                d[k] = np.concatenate(list(d[k] for d in ds))
+            data_all = d
+        chip+=1     
 print("SNR A")
 print(np.median(snrA))
 print("SNR B")
 print(np.median(snrB))
+
+# Create data for output FITS file
+col1  = fits.Column(name='WL_A', format='D', array=data_all['WL_A'])  
+col2  = fits.Column(name='WL_B', format='D', array=data_all['WL_B'])      
+col3  = fits.Column(name='STOKES_A', format='D', array=data_all['STOKES_A'])      
+col4  = fits.Column(name='STOKES_B', format='D', array=data_all['STOKES_B'])      
+col5  = fits.Column(name='INTENS_A', format='D', array=data_all['INTENS_A'])      
+col6  = fits.Column(name='INTENS_B', format='D', array=data_all['INTENS_B'])      
+col7  = fits.Column(name='NULL_A', format='D', array=data_all['NULL_A'])      
+col8  = fits.Column(name='NULL_B', format='D', array=data_all['NULL_B'])      
+col9  = fits.Column(name='ERR_STOKES_A', format='D', array=data_all['ERR_STOKES_A'])      
+col10 = fits.Column(name='ERR_STOKES_B', format='D', array=data_all['ERR_STOKES_B'])      
+col11 = fits.Column(name='ERR_A', format='D', array=data_all['ERR_A'])      
+col12 = fits.Column(name='ERR_B', format='D', array=data_all['ERR_B'])      
+col13 = fits.Column(name='ERR_NULL_A', format='D', array=data_all['ERR_NULL_A'])      
+col14 = fits.Column(name='ERR_NULL_B', format='D', array=data_all['ERR_NULL_B'])      
+col15 = fits.Column(name='CHIP', format='D', array=data_all['CHIP'])      
+col16 = fits.Column(name='DET', format='D', array=data_all['DET'])      
+col17 = fits.Column(name='ORDER', format='D', array=data_all['ORDER'])      
+table_hdu = fits.BinTableHDU.from_columns([col1,col2,col3,col4,col5,col6,col7,col8,col9,col10,
+                                           col11,col12,col13,col14,col15,col16,col17])
+hdul_output.append(table_hdu)
+hdul_output.writeto('cr2res_obs_pol_demodulated.fits', overwrite=True)
