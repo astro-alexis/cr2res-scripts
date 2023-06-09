@@ -13,8 +13,9 @@ from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import least_squares,minimize
 from scipy import interpolate
-
-version_number = '2.0'
+import warnings 
+warnings.simplefilter('ignore', np.RankWarning)
+version_number = '2.1'
 
 np.seterr(divide='ignore', invalid='ignore')
 
@@ -166,7 +167,7 @@ for ic in range(3):
     for io in range(len(orders)):
         print('Order: ' + orders[io][0:2])
         data = {'A1u' : np.empty(2048)}
-        fig,ax = plt.subplots(4, figsize=(14,10)) 
+        fig,ax = plt.subplots(5, figsize=(14,12)) 
         order = orders[io]
 
         # Load all the spectra: u for up beam, d for down, 1234 are subexposure number, AB are nodding position
@@ -213,8 +214,8 @@ for ic in range(3):
         mask[-20:-1] = 2
         mask=mask.astype(int)
 
-        coefA,cIA,fmA,idxA = FitCon(data['WL_A'],meanIA*8.,deg=3,niter=50,sig=meanEIA,swin=10,k1=0.1,k2=0.3,mask=mask)
-        coefB,cIB,fMB,idxB = FitCon(data['WL_B'],meanIB*8.,deg=3,niter=50,sig=meanEIB,swin=10,k1=0.1,k2=0.3,mask=mask)
+        coefA,cIA,fmA,idxA = FitCon(data['WL_A'],meanIA*8.,deg=4,niter=25,sig=meanEIA,swin=10,k1=0.1,k2=0.3,mask=mask)
+        coefB,cIB,fMB,idxB = FitCon(data['WL_B'],meanIB*8.,deg=4,niter=25,sig=meanEIB,swin=10,k1=0.1,k2=0.3,mask=mask)
         data['CONTINUUM_A'], data['CONTINUUM_B'] = cIA, cIB
 	# Loop on all A and B beams: scale the spectrum a to the mean spectrum
         for k in ka:
@@ -258,10 +259,13 @@ for ic in range(3):
         print("SNRA,SNRB = {:.1f},{:.1f}".format(np.nanpercentile(data['INTENS_A']/data['ERR_A'],98),np.nanpercentile(data['INTENS_B']/data['ERR_B'],98)))
         PAB = np.abs(np.append(data['STOKES_A'],data['STOKES_B']))
         PABlim = np.nanpercentile(PAB, 99.5)*1.5
+        PABn = np.abs(np.append(data['STOKES_A']*data['INTENS_A']/data['CONTINUUM_A'],data['STOKES_B']*data['INTENS_B']/data['CONTINUUM_B']))
+        PABnlim = np.nanpercentile(PABn, 99.5)*1.5
+
         IAB = np.append(data['INTENS_A']/8.,data['INTENS_B']/8.)
         IABlim = np.nanpercentile(IAB, 99)*1.2
-        IABn = np.append(data['INTENS_A']/(data['CONTINUUM_A']),data['INTENS_B']/(data['CONTINUUM_B']))
-        IABnlim = np.nanpercentile(IABn, 99)*1.2
+        IABn = np.append(data['INTENS_A'][pp]/(data['CONTINUUM_A'][pp]),data['INTENS_B'][pp]/(data['CONTINUUM_B'][pp]))
+        IABnlim = [np.nanpercentile(IABn, 0.5)-0.1,np.nanpercentile(IABn, 99)+0.15]
 
         key = [i for i in data.keys() if len(i) == 3]
         
@@ -277,18 +281,22 @@ for ic in range(3):
         ax[1].plot(data['WL_A'][pp], data['INTENS_A'][pp]/data['CONTINUUM_A'][pp], color=c0)
         ax[1].plot(data['WL_B'][pp], data['INTENS_B'][pp]/data['CONTINUUM_B'][pp], color=c5)
         ax[1].hlines(1, np.min(data['WL_A'][pp]), np.max(data['WL_A'][pp]), linestyle='dashed', linewidth=1, color="C1", zorder=10)
-        ax[1].set_ylim(-0.1,IABnlim)
+        ax[1].set_ylim(IABnlim[0],IABnlim[1])
         ax[1].set_ylabel('Stokes $I/I_c$')
         ax[2].plot(data['WL_A'][pp], data['STOKES_A'][pp], color=c1, alpha=0.8)
         ax[2].fill_between(data['WL_A'][pp], data['STOKES_A'][pp]-0.5*data['ERR_STOKES_A'][pp],data['STOKES_A'][pp]+0.5*data['ERR_STOKES_A'][pp], color=c1, alpha=0.2)
         ax[2].plot(data['WL_B'][pp], data['STOKES_B'][pp], color=c4, alpha=0.8)
         ax[2].fill_between(data['WL_B'][pp], data['STOKES_B'][pp]-0.5*data['ERR_STOKES_B'][pp],data['STOKES_B'][pp]+0.5*data['ERR_STOKES_B'][pp], color=c4, alpha=0.2)
-        ax[3].hlines(0, np.min(data['WL_A'][pp]), np.max(data['WL_A'][pp]), linestyle='dashed', linewidth=1, color="#dedede", zorder=10)
-        ax[3].plot(data['WL_A'][pp], data['NULL_A'][pp], color=c2, alpha=0.5)
-        ax[3].plot(data['WL_B'][pp], data['NULL_B'][pp], color=c5, alpha=0.5)
 
-        ax[2].set_ylim(-PABlim,PABlim),ax[3].set_ylim(-PABlim,PABlim),ax[0].set_ylim(-0.1,IABlim)
-        ax[3].set_xlabel('Wavelength [nm]'), ax[3].set_ylabel('Null spectrum')
+        ax[3].plot(data['WL_A'][pp], data['STOKES_A'][pp]*data['INTENS_A'][pp]/data['CONTINUUM_A'][pp], color=c1, alpha=0.8)
+        ax[3].plot(data['WL_B'][pp], data['STOKES_B'][pp]*data['INTENS_B'][pp]/data['CONTINUUM_B'][pp], color=c4, alpha=0.8)
+        ax[3].set_ylim(-PABnlim,PABnlim)
+        ax[4].hlines(0, np.min(data['WL_A'][pp]), np.max(data['WL_A'][pp]), linestyle='dashed', linewidth=1, color="#dedede", zorder=10)
+        ax[4].plot(data['WL_A'][pp], data['NULL_A'][pp], color=c2, alpha=0.5)
+        ax[4].plot(data['WL_B'][pp], data['NULL_B'][pp], color=c5, alpha=0.5)
+
+        ax[2].set_ylim(-PABlim,PABlim),ax[4].set_ylim(-PABlim,PABlim),ax[0].set_ylim(-0.1,IABlim)
+        ax[4].set_xlabel('Wavelength [nm]'), ax[4].set_ylabel('Null spectrum')
         ax[2].set_ylabel('Stokes ' +'$' + A1u[0].header["HIERARCH ESO INS POL TYPE"]+'$/$I$'),ax[0].set_ylabel('Stokes $I$')
         plt.savefig('plot-demodulation_order'+str(orders[io][0:2])+'-det'+str(ic+1)+'.png')
         plt.close()
