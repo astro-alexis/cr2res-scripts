@@ -14,7 +14,7 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import least_squares,minimize
 from scipy import interpolate
 
-version_number = '1.0'
+version_number = '2.0'
 
 np.seterr(divide='ignore', invalid='ignore')
 
@@ -79,15 +79,12 @@ def FitCon(
 ):
     if mask is None:
         mask = np.full(wave.shape, 0)    
-    else:
-        sig = np.ones_like(wave)    
-
     wave = wave 
     fmean = np.nanmean(flux)
     flux = flux - fmean
     idx = np.squeeze(np.argwhere(mask!=2)) 
     if sig is not None:        
-        sig[idx] = 1. / sig[idx]
+        sig[idx] =  1./ sig[idx]
     smooth = gaussian_filter1d(flux[idx], swin)
     coeff = np.polyfit(wave[idx], smooth, deg, w=sig[idx])
     con = np.polyval(coeff, wave)
@@ -169,7 +166,7 @@ for ic in range(3):
     for io in range(len(orders)):
         print('Order: ' + orders[io][0:2])
         data = {'A1u' : np.empty(2048)}
-        fig,ax = plt.subplots(3, figsize=(14,10)) 
+        fig,ax = plt.subplots(4, figsize=(14,10)) 
         order = orders[io]
 
         # Load all the spectra: u for up beam, d for down, 1234 are subexposure number, AB are nodding position
@@ -185,21 +182,26 @@ for ic in range(3):
         data['eB1d'],data['eB2d'],data['eB3d'],data['eB4d'] = B1d[ch].data[order+'ERR'],B2d[ch].data[order+'ERR'],B3d[ch].data[order+'ERR'],B4d[ch].data[order+'ERR']
 
         # Define reference wavelength for A and B
+	# The reference wavelength is UP beam
         data['WL_A'] = A1u[ch].data[order+'WL']
         data['wl_dA']  = A1d[ch].data[order+'WL'] 
         data['WL_B'] = B1u[ch].data[order+'WL']
         data['wl_dB']  = B1d[ch].data[order+"WL"]
 
         keys = [i for i in data.keys() if np.logical_and('d' in i, 'wl' not in i)] # find down spectra
+
         # Interpolate down on up for spectra and err spectra
         for beam in keys:
             if 'A' in beam: wlref,wld = "WL_A", "wl_dA"
             else: wlref,wld = "WL_B","wl_dB"
             data[beam] = interp1d(data[wld], data[beam], kind='linear', bounds_error=False)(data[wlref])  
-
+	# Find all beams (key is 3 letter longs) for A and B separately
         ka,kb = [i for i in data.keys() if np.logical_and(len(i) == 3, 'A' in i) ], [i for i in data.keys() if np.logical_and(len(i) == 3, 'B' in i) ]
+	# Compute mean Stokes I for A and B in meanIA and meanIB
         meanIA,meanIB = sum(data[item] for item in ka)/8.,sum(data[item] for item in kb)/8.
+	# Compute mean error for Stokes I for A and B
         meanEIA,meanEIB = sum(data['e'+item]**2. for item in ka)**0.5 ,sum(data['e'+item]**2. for item in kb)**0.5
+	# Define a mask where there is no NaN in I and ERR. Where I>0, and without edges
         mask = np.ones((len(meanEIA)))
         mask[np.where(np.isnan(meanIA))] = 2
         mask[np.where(np.isnan(meanIB))] = 2
@@ -207,18 +209,20 @@ for ic in range(3):
         mask[np.where(np.isnan(meanEIB))] = 2
         mask[np.where(meanEIA <= 0)] = 2
         mask[np.where(meanEIB <= 0)] = 2
-        mask[0:100] = 2
-        mask[-100:-1] = 2
+        mask[0:20] = 2
+        mask[-20:-1] = 2
         mask=mask.astype(int)
-#        coefA,cIA,fmA,idxA = FitCon(data['WL_A'],meanIA,deg=3,niter=50,sig=meanEIA,swin=7,k1=1,k2=3,mask=mask)
-#        coefB,cIB,fMB,idxB = FitCon(data['WL_B'],meanIB,deg=3,niter=50,sig=meanEIB,swin=7,k1=1,k2=3,mask=mask)
 
+        coefA,cIA,fmA,idxA = FitCon(data['WL_A'],meanIA*8.,deg=3,niter=50,sig=meanEIA,swin=10,k1=0.1,k2=0.3,mask=mask)
+        coefB,cIB,fMB,idxB = FitCon(data['WL_B'],meanIB*8.,deg=3,niter=50,sig=meanEIB,swin=10,k1=0.1,k2=0.3,mask=mask)
+        data['CONTINUUM_A'], data['CONTINUUM_B'] = cIA, cIB
+	# Loop on all A and B beams: scale the spectrum a to the mean spectrum
         for k in ka:
             res = least_squares(mincrosscol, [1.], args=(data['WL_A'][20:-20],data[k][20:-20],meanIA[20:-20],data['e'+k][20:-20]),verbose=0, max_nfev=2500)
-            data[k], data['e'+k] = data[k]*res.x[0]/1., data['e'+k]*res.x[0]/1.
+            data[k], data['e'+k] = (data[k]*res.x[0]/1.), data['e'+k]*res.x[0]/1.
         for k in kb:
             res = least_squares(mincrosscol, [1.], args=(data['WL_B'][20:-20],data[k][20:-20],meanIB[20:-20],data['e'+k][20:-20]),verbose=0, max_nfev=2500)
-            data[k], data['e'+k] = data[k]*res.x[0]/1., data['e'+k]*res.x[0]/1.
+            data[k], data['e'+k] = (data[k]*res.x[0]/1.), data['e'+k]*res.x[0]/1.
 
         # Demodulate with ratio method for A and B
         # P is Pol spectrum, I is intensity spectrum, N is null spectrum, E is error spectrum
@@ -254,27 +258,38 @@ for ic in range(3):
         print("SNRA,SNRB = {:.1f},{:.1f}".format(np.nanpercentile(data['INTENS_A']/data['ERR_A'],98),np.nanpercentile(data['INTENS_B']/data['ERR_B'],98)))
         PAB = np.abs(np.append(data['STOKES_A'],data['STOKES_B']))
         PABlim = np.nanpercentile(PAB, 99.5)*1.5
-        IAB = np.append(data['INTENS_B']/8.,data['INTENS_B']/8.)
+        IAB = np.append(data['INTENS_A']/8.,data['INTENS_B']/8.)
         IABlim = np.nanpercentile(IAB, 99)*1.2
+        IABn = np.append(data['INTENS_A']/(data['CONTINUUM_A']),data['INTENS_B']/(data['CONTINUUM_B']))
+        IABnlim = np.nanpercentile(IABn, 99)*1.2
+
         key = [i for i in data.keys() if len(i) == 3]
+        
+        # Demodulation plots
+        # axes | 0: intensity plot; 1: normalized intensity; 2: Stokes/I; 3: Null/I
         for k in key:
             if k[0] == 'A': col = c1
             else: col = c4 
             ax[0].plot(data['WL_'+k[0:1]][pp], data[k][pp], color=col,alpha=0.2)
         ax[0].plot(data['WL_A'][pp], data['INTENS_A'][pp]/8., color=c0)
         ax[0].plot(data['WL_B'][pp], data['INTENS_B'][pp]/8., color=c5)
-        ax[0].hlines(1, np.min(data['WL_A'][pp]), np.max(data['WL_A'][pp]), linestyle='dashed', linewidth=1, color="C1", zorder=10)
-        ax[1].plot(data['WL_A'][pp], data['STOKES_A'][pp], color=c1, alpha=0.8)
-        ax[1].fill_between(data['WL_A'][pp], data['STOKES_A'][pp]-0.5*data['ERR_STOKES_A'][pp],data['STOKES_A'][pp]+0.5*data['ERR_STOKES_A'][pp], color=c1, alpha=0.2)
-        ax[1].plot(data['WL_B'][pp], data['STOKES_B'][pp], color=c4, alpha=0.8)
-        ax[1].fill_between(data['WL_B'][pp], data['STOKES_B'][pp]-0.5*data['ERR_STOKES_B'][pp],data['STOKES_B'][pp]+0.5*data['ERR_STOKES_B'][pp], color=c4, alpha=0.2)
-        ax[1].hlines(0, np.min(data['WL_A'][pp]), np.max(data['WL_A'][pp]), linestyle='dashed', linewidth=1, color="#dedede", zorder=10)
-        ax[2].plot(data['WL_A'][pp], data['NULL_A'][pp], color=c2, alpha=0.5)
-        ax[2].plot(data['WL_B'][pp], data['NULL_B'][pp], color=c5, alpha=0.5)
 
-        ax[1].set_ylim(-PABlim,PABlim),ax[2].set_ylim(-PABlim,PABlim),ax[0].set_ylim(-0.1,IABlim)
-        ax[2].set_xlabel('Wavelength [nm]'), ax[2].set_ylabel('Null spectrum')
-        ax[1].set_ylabel('Stokes ' +'$' + A1u[0].header["HIERARCH ESO INS POL TYPE"]+'$/$I$'),ax[0].set_ylabel('Stokes $I$')
+        ax[1].plot(data['WL_A'][pp], data['INTENS_A'][pp]/data['CONTINUUM_A'][pp], color=c0)
+        ax[1].plot(data['WL_B'][pp], data['INTENS_B'][pp]/data['CONTINUUM_B'][pp], color=c5)
+        ax[1].hlines(1, np.min(data['WL_A'][pp]), np.max(data['WL_A'][pp]), linestyle='dashed', linewidth=1, color="C1", zorder=10)
+        ax[1].set_ylim(-0.1,IABnlim)
+        ax[1].set_ylabel('Stokes $I/I_c$')
+        ax[2].plot(data['WL_A'][pp], data['STOKES_A'][pp], color=c1, alpha=0.8)
+        ax[2].fill_between(data['WL_A'][pp], data['STOKES_A'][pp]-0.5*data['ERR_STOKES_A'][pp],data['STOKES_A'][pp]+0.5*data['ERR_STOKES_A'][pp], color=c1, alpha=0.2)
+        ax[2].plot(data['WL_B'][pp], data['STOKES_B'][pp], color=c4, alpha=0.8)
+        ax[2].fill_between(data['WL_B'][pp], data['STOKES_B'][pp]-0.5*data['ERR_STOKES_B'][pp],data['STOKES_B'][pp]+0.5*data['ERR_STOKES_B'][pp], color=c4, alpha=0.2)
+        ax[3].hlines(0, np.min(data['WL_A'][pp]), np.max(data['WL_A'][pp]), linestyle='dashed', linewidth=1, color="#dedede", zorder=10)
+        ax[3].plot(data['WL_A'][pp], data['NULL_A'][pp], color=c2, alpha=0.5)
+        ax[3].plot(data['WL_B'][pp], data['NULL_B'][pp], color=c5, alpha=0.5)
+
+        ax[2].set_ylim(-PABlim,PABlim),ax[3].set_ylim(-PABlim,PABlim),ax[0].set_ylim(-0.1,IABlim)
+        ax[3].set_xlabel('Wavelength [nm]'), ax[3].set_ylabel('Null spectrum')
+        ax[2].set_ylabel('Stokes ' +'$' + A1u[0].header["HIERARCH ESO INS POL TYPE"]+'$/$I$'),ax[0].set_ylabel('Stokes $I$')
         plt.savefig('plot-demodulation_order'+str(orders[io][0:2])+'-det'+str(ic+1)+'.png')
         plt.close()
 
@@ -282,7 +297,8 @@ for ic in range(3):
         # Save data in a dict global to all segments
         keys_wanted = ['WL_A','WL_B','STOKES_A','STOKES_B', 'INTENS_A','INTENS_B',
                            'NULL_A','NULL_B','ERR_STOKES_A','ERR_STOKES_B','ERR_A','ERR_B',
-                           'ERR_NULL_A','ERR_NULL_B', 'CHIP', 'DET', 'ORDER']
+                           'ERR_NULL_A','ERR_NULL_B', 'CHIP', 'DET', 'ORDER',
+                           'CONTINUUM_A','CONTINUUM_B']
         if chip == 0: # if first segment, the big dictionary is isolated from 'data'
             data_all = {key: data[key] for key in keys_wanted}
         else: # after that, let's concatenate
@@ -312,12 +328,14 @@ col10 = fits.Column(name='ERR_STOKES_B', format='D', array=data_all['ERR_STOKES_
 col11 = fits.Column(name='ERR_A', format='D', array=data_all['ERR_A'])      
 col12 = fits.Column(name='ERR_B', format='D', array=data_all['ERR_B'])      
 col13 = fits.Column(name='ERR_NULL_A', format='D', array=data_all['ERR_NULL_A'])      
-col14 = fits.Column(name='ERR_NULL_B', format='D', array=data_all['ERR_NULL_B'])      
-col15 = fits.Column(name='CHIP', format='D', array=data_all['CHIP'])      
-col16 = fits.Column(name='DET', format='D', array=data_all['DET'])      
-col17 = fits.Column(name='ORDER', format='D', array=data_all['ORDER'])      
+col14 = fits.Column(name='ERR_NULL_B', format='D', array=data_all['ERR_NULL_B'])
+col15 = fits.Column(name='CONTINUUM_A', format='D', array=data_all['CONTINUUM_A'])      
+col16 = fits.Column(name='CONTINUUM_B', format='D', array=data_all['CONTINUUM_B'])       
+col17 = fits.Column(name='CHIP', format='D', array=data_all['CHIP'])      
+col18 = fits.Column(name='DET', format='D', array=data_all['DET'])      
+col19 = fits.Column(name='ORDER', format='D', array=data_all['ORDER'])      
 table_hdu = fits.BinTableHDU.from_columns([col1,col2,col3,col4,col5,col6,col7,col8,col9,col10,
-                                           col11,col12,col13,col14,col15,col16,col17])
+                                           col11,col12,col13,col14,col15,col16,col17,col18,col19])
 hdul_output.append(table_hdu)
 hdul_output[0].header['MJD_MEAN_A'] =  JDA
 hdul_output[0].header['MJD_MEAN_B'] =  JDB 
