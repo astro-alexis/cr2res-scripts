@@ -68,6 +68,7 @@ def gen_corr_spec(w,wref,s,params):
         return s1
 version = "1.0"
 
+# BEGINNING OF MAIN CODE"
 # Load science files. There should be 4 files
 f = glob.glob('*science.ech')
 if len(f) != 4: stop()
@@ -78,8 +79,8 @@ f3 = fits.open(f[2])[1].data
 f4 = fits.open(f[3])[1].data
 
 # Load the wavelength solution.
-# For now, the blue wavelength solution is determined from HARPS spectroscopy data
-# so there are 46 orders. In HARPSpol there are 92 spectra (46 orders * 2 channels).
+# For now, the wavelength solution is determined from HARPS spectroscopy data for N orders
+# In HARPSpol there are N*2 spectra (N orders * 2 channels).
 # So I propagate the same wavelength solution to up and down spectra. Then cross-
 # correlate. [TODO]: fix the wavelength calibration step
 thard = load(glob.glob("harps*thar.npz")[0])
@@ -102,12 +103,11 @@ for i in range(int(f1['SPEC'].shape[1]/2)):
 
 	# save the scaling factor into scale
 	scale = res.x[0]
-	res.x[0]=1.
-
 	u1i = gen_corr_spec(wu, wd, u1 ,res.x)
 	u2i = gen_corr_spec(wu, wd, u2 ,res.x)
 	u3i = gen_corr_spec(wu, wd, u3 ,res.x)
 	u4i = gen_corr_spec(wu, wd, u4 ,res.x)
+
 	R = u1i/d1 * d2/u2i * d3/u3i * u4i/d4
 
 	E = np.sqrt(ed1**2 + ed2**2 + ed3**2 + ed4**2 + eu1**2 + eu2**2 + eu3**2 + eu4**2)
@@ -117,7 +117,6 @@ for i in range(int(f1['SPEC'].shape[1]/2)):
 
 	ax[0].plot(wd[15:-15],I2[15:-15], 'C1')
 	ax[0].plot(wd[15:-15],I1[15:-15], 'C0')
-	ax[0].plot(wd[15:-15],I2[15:-15]*scale, 'C1--', linewidth=1)
 
 	ax[1].plot(wd[15:-15],P[15:-15], 'k')
 
