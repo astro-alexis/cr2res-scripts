@@ -22,7 +22,7 @@ def mincrosscol(params,w1,s1,wref,sref, eref):
         s1 = s1 * scale
         f1 = interpolate.interp1d(w1n, s1, bounds_error=False, fill_value="extrapolate")
         s1i = f1(wref)
-        return (np.sum( (s1i-sref)**2./eref**2 ))
+        return (np.sum( (s1i[100:-100]-sref[100:-100])**2./eref[100:-100]**2 ))
 
 def FitCon(
     wave,
@@ -88,6 +88,7 @@ wave = thard['wave']
 
 # Loop on orders
 for i in range(int(f1['SPEC'].shape[1]/2)):
+	print('Order: ' + str(i).zfill(2))
 	fig,ax = plt.subplots(3)
 	# Load up and down spectra
 	d1,d2,d3,d4 = f1['SPEC'][0][2*i],f2['SPEC'][0][2*i],f3['SPEC'][0][2*i],f4['SPEC'][0][2*i]
@@ -97,34 +98,56 @@ for i in range(int(f1['SPEC'].shape[1]/2)):
 	eu1,eu2,eu3,eu4 = f1['SIG'][0][2*i+1],f2['SIG'][0][2*i+1],f3['SIG'][0][2*i+1],f4['SIG'][0][2*i+1]
 	# Load the same wavelength solution for up and down
 	wd,wu = wave[i,:],wave[i,:]
+	data = {'INTENS' : np.empty(len(d1))}
+	data['WAVE'] = wd
 	# Cross-correlate up on down
-	res = least_squares(mincrosscol, [1.4,0.,0], args=(wu[20:-20].astype(dtype=np.float64),u1[20:-20].astype(dtype=np.float64),wd[20:-20].astype(dtype=np.float64),
+	res = least_squares(mincrosscol, [1.,0.,0], args=(wu[20:-20].astype(dtype=np.float64),u1[20:-20].astype(dtype=np.float64),wd[20:-20].astype(dtype=np.float64),
 			d1[20:-20],f1['SIG'][0][2*i][20:-20].astype(dtype=np.float64)),verbose=0, max_nfev=2500)
 
 	# save the scaling factor into scale
 	scale = res.x[0]
+
+	# Produce interpolated and scaled up spectra
 	u1i = gen_corr_spec(wu, wd, u1 ,res.x)
 	u2i = gen_corr_spec(wu, wd, u2 ,res.x)
 	u3i = gen_corr_spec(wu, wd, u3 ,res.x)
 	u4i = gen_corr_spec(wu, wd, u4 ,res.x)
+	# Produce interpolated and scaled up error spectra
+	eu1i = gen_corr_spec(wu, wd, eu1 ,res.x)
+	eu2i = gen_corr_spec(wu, wd, eu2 ,res.x)
+	eu3i = gen_corr_spec(wu, wd, eu3 ,res.x)
+	eu4i = gen_corr_spec(wu, wd, eu4 ,res.x)
 
+	# Compute ratio for demodulation
 	R = u1i/d1 * d2/u2i * d3/u3i * u4i/d4
 
-	E = np.sqrt(ed1**2 + ed2**2 + ed3**2 + ed4**2 + eu1**2 + eu2**2 + eu3**2 + eu4**2)
-	P = (R**0.25 - 1.) / (R**0.25 + 1) 
+	# Compute Stokes parameter (V/I, Q/I, U/I)
+	data['STOKES'] = (R**0.25 - 1.) / (R**0.25 + 1)
+
+	# Compute total intensity spectrum (Stokes I) 
 	I1 = d1+d2+d3+d4 
 	I2 = u1i + u2i + u3i + u4i
+	data['INTENS'] = I1+I2
 
-	ax[0].plot(wd[15:-15],I2[15:-15], 'C1')
-	ax[0].plot(wd[15:-15],I1[15:-15], 'C0')
+	# Compute error on Stokes parameter
+	sumE = ((eu1i/u1i)**2 + (eu2i/u2i)**2 + (eu3i/u3i)**2 + (eu4i/u4i)**2
+              + (ed1/d1)**2   + (ed2/d2)**2   + (ed3/d3)**2   + (ed4/d4)**2 )**0.5
 
-	ax[1].plot(wd[15:-15],P[15:-15], 'k')
+	data['ERR_STOKES'] = sumE * 0.5 * R / (R+1.)**2. # Error spectrum for polarisation
+	# Compute error spectrum for intensity (quadratic sum of error vectors) 
+	meanE = np.sqrt(ed1**2 + ed2**2 + ed3**2 + ed4**2 + eu1i**2 + eu2i**2 + eu3i**2 + eu4i**2)
+	data['ERR_INTENS'] = meanE
 
-	ax[2].plot(wd[15:-15], (I1[15:-15]+I2[15:-15])/E[15:-15], linewidth=2, color='gray')
-#ax[0].set_xlim(6547,6553), ax[1].set_xlim(6547,6553),ax[0].set_ylim(0,200000)
+	# Plotting demodulation plot for each order
+	ax[0].plot(data['WAVE'][15:-15],I1[15:-15], 'C0')
+	ax[0].plot(data['WAVE'][15:-15],I2[15:-15], 'C1')
+
+	ax[1].plot(data['WAVE'][15:-15],data['STOKES'][15:-15], 'k')
+
+	ax[2].plot(data['WAVE'][15:-15], data['INTENS'][15:-15]/data['ERR_INTENS'][15:-15], linewidth=2, color='gray')
 	ax[2].set_xlabel('Wavelength [nm]')
 	ax[2].set_ylabel('SNR')
 	ax[1].set_ylabel('Stokes V/I')
 	ax[0].set_ylabel('Stokes I')
-	plt.savefig("plot-order-"+str(i).zfill(2)+".png")
+	plt.savefig("plot-demodulation_order-"+str(i).zfill(2)+".png")
 	plt.close()
