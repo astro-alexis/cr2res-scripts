@@ -81,7 +81,7 @@ def gen_corr_spec(w,wref,s,params):
     f = interpolate.interp1d(w,s, bounds_error=False, fill_value="extrapolate")
     s1 = f(wref)
     return s1
-version = "1.0"
+version_number = "1.0"
 
 # BEGINNING OF MAIN CODE"
 # Load science files. There should be 4 files
@@ -93,16 +93,26 @@ f2 = fits.open(f[1])[1].data
 f3 = fits.open(f[2])[1].data
 f4 = fits.open(f[3])[1].data
 
+print('Target: \t\t' + fits.open(f[0])[0].header['OBJECT'])
+print('Date of 1st subexp: \t' + fits.open(f[0])[0].header['DATE-OBS'])
 
+primary_hdu = fits.open(f[0])[0] # keep primary HDU with header
+hdul_output = fits.HDUList([primary_hdu])
+
+chip = 0
+snr_max,snr_median = np.array([]),np.array([])
 # Load the wavelength solution.
 # For now, the wavelength solution is determined from HARPS spectroscopy data for N orders
 # In HARPSpol there are N*2 spectra (N orders * 2 channels).
 # So I propagate the same wavelength solution to up and down spectra. Then cross-
 # correlate. [TODO]: fix the wavelength calibration step
+wf = glob.glob("harps*thar.npz")[0]
 thard = load(glob.glob("harps*thar.npz")[0])
+mode=wf[wf.find('_')+1:wf.find('.thar')]
 wave = thard['wave']
-flat = load(glob.glob("harps*flat_norm.npz")[0])
-blaze=flat['blaze']
+#flat = load(glob.glob("harps*flat_norm.npz")[0])
+#blaze=flat['blaze']
+
 # Loop on orders
 for i in range(int(f1['SPEC'].shape[1]/2)):
     print('Order: ' + str(i).zfill(2))
@@ -197,6 +207,11 @@ for i in range(int(f1['SPEC'].shape[1]/2)):
     data['ERR_NULL'] = sumE * 0.5 * RN / (RN+1.)**2.
     data['NULL/Ic'] = data['NULL'] * data['INTENS_NORM']
     data['ERR_NULL/Ic'] = data['ERR_NULL'] * data['INTENS_NORM']
+
+    data['ORDER'] = data['WAVE'] * 0 + chip
+    snr_max = np.append(snr_max,np.nanpercentile(data['INTENS']/data['ERR_INTENS'], 98))
+    snr_median = np.append(snr_median,np.nanpercentile(data['INTENS']/data['ERR_INTENS'], 50))
+    print('SNR (median, peak): {:.1f}\t{:.1f}'.format(np.nanpercentile(data['INTENS']/data['ERR_INTENS'], 50),np.nanpercentile(data['INTENS']/data['ERR_INTENS'], 98)))
     # Plotting demodulation plot for each order
     ax[0].plot(data['WAVE'][15:-15],data['INTENS_NORM'][15:-15], color="k", linewidth=0.7)
     ax[0].plot(data['WAVE'][15:-15],np.ones(len(data['STOKES'][15:-15])), color="r", linestyle="dashed", linewidth=0.5)
@@ -219,7 +234,7 @@ for i in range(int(f1['SPEC'].shape[1]/2)):
     ax[2].plot(data['WAVE'][15:-15],np.zeros(len(data['STOKES'][15:-15])), color="r", linestyle="dashed", linewidth=0.5)
     ax[2].set_ylabel('Stokes $V/I$')
 
-    ax[3].plot(data['WAVE'][15:-15],data['NULL'][15:-15], color='k', linewidth=0.7), alpha=0.7
+    ax[3].plot(data['WAVE'][15:-15],data['NULL'][15:-15], color='k', linewidth=0.7, alpha=0.7)
     ax[3].plot(data['WAVE'][15:-15],np.zeros(len(data['STOKES'][15:-15])), color="r", linestyle="dashed", linewidth=0.5)
     ax[3].set_ylabel('Null spectrum')
     ax[4].plot(data['WAVE'][15:-15], data['INTENS'][15:-15]/data['ERR_INTENS'][15:-15], linewidth=0.7, color='k', alpha=0.5)
@@ -228,3 +243,40 @@ for i in range(int(f1['SPEC'].shape[1]/2)):
 
     plt.savefig("plot-demodulation_order-"+str(i).zfill(2)+".png")
     plt.close()
+
+    keys_wanted = [ "WAVE","INTENS","INTENS_NORM","ERR_INTENS","ERR_INTENS_NORM","CONTINUUM","STOKES",
+                    "ERR_STOKES","STOKES/Ic","ERR_STOKES/Ic","NULL","ERR_NULL","NULL/Ic","ERR_NULL/Ic","ORDER"
+    ] 
+    if chip==0:
+        data_all = {key: data[key] for key in keys_wanted}
+    else:
+        data_buffer = {key: data[key] for key in keys_wanted}
+        ds = [data_all, data_buffer]
+        d = {}
+        for k in data_all.keys():
+            d[k] = np.concatenate(list(d[k] for d in ds))
+        data_all = d
+    chip += 1
+
+print("median SNR, entire spectrum: {:.1f}".format(np.median(snr_median)))
+
+col1  = fits.Column(name='WAVE', format='D', array=data_all['WAVE'][15:-15])
+col2  = fits.Column(name='INTENS', format='D', array=data_all['INTENS'][15:-15])
+col3  = fits.Column(name='INTENS_NORM', format='D', array=data_all['INTENS_NORM'][15:-15])
+col4  = fits.Column(name='ERR_INTENS', format='D', array=data_all['ERR_INTENS'][15:-15])
+col5  = fits.Column(name='ERR_INTENS_NORM', format='D', array=data_all['ERR_INTENS_NORM'][15:-15])
+col6  = fits.Column(name='CONTINUUM', format='D', array=data_all['CONTINUUM'][15:-15])
+col7  = fits.Column(name='STOKES', format='D', array=data_all['STOKES'][15:-15])
+col8  = fits.Column(name='ERR_STOKES', format='D', array=data_all['ERR_STOKES'][15:-15])
+col9  = fits.Column(name='STOKES/Ic', format='D', array=data_all['STOKES/Ic'][15:-15])
+col10  = fits.Column(name='ERR_STOKES/Ic', format='D', array=data_all['ERR_STOKES/Ic'][15:-15])
+col11  = fits.Column(name='NULL', format='D', array=data_all['NULL'][15:-15])
+col12  = fits.Column(name='ERR_NULL', format='D', array=data_all['ERR_NULL'][15:-15])
+col13  = fits.Column(name='NULL/Ic', format='D', array=data_all['NULL/Ic'][15:-15])
+col14  = fits.Column(name='ERR_NULL/Ic', format='D', array=data_all['ERR_NULL/Ic'][15:-15])
+col15  = fits.Column(name='ORDER', format='D', array=data_all['ORDER'][15:-15])
+table_hdu = fits.BinTableHDU.from_columns([col1,col2,col3,col4,col5,col6,col7,col8,col9,col10,
+                                            col11,col12,col13,col14,col15])
+hdul_output.append(table_hdu)
+hdul_output[0].header['DEMOD_VERS_ID'] =  (version_number, 'version number of demod script' )
+hdul_output.writeto('HARPSpol-'+mode+'_demodulated.fits', overwrite=True)
