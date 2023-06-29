@@ -5,8 +5,10 @@ from numpy import load
 import glob
 from scipy import interpolate
 from scipy.optimize import least_squares,minimize
+from scipy.ndimage import gaussian_filter1d
 plt.rcParams['figure.figsize'] = [16, 6]
-
+import warnings 
+warnings.simplefilter('ignore', np.RankWarning)
 np.seterr(all='ignore')
 
 # Function used to cross-correlate up on down channels.
@@ -98,12 +100,28 @@ for i in range(int(f1['SPEC'].shape[1]/2)):
 	eu1,eu2,eu3,eu4 = f1['SIG'][0][2*i+1],f2['SIG'][0][2*i+1],f3['SIG'][0][2*i+1],f4['SIG'][0][2*i+1]
 	# Load the same wavelength solution for up and down
 	wd,wu = wave[i,:],wave[i,:]
-	data = {'INTENS' : np.empty(len(d1))}
+	data = {'WAVE' : np.empty(len(d1))}
 	data['WAVE'] = wd
+	# Compute mean up and down spectra
+	meanu,meand = (u1+u2+u3+u4)/4., (d1+d2+d3+d4)/4.
+	# Compute mean up and down errors
+	meaned = (ed1**2 + ed2**2 + ed3**2 + ed4**2)**0.5
 	# Cross-correlate up on down
-	res = least_squares(mincrosscol, [1.,0.,0], args=(wu[20:-20].astype(dtype=np.float64),u1[20:-20].astype(dtype=np.float64),wd[20:-20].astype(dtype=np.float64),
-			d1[20:-20],f1['SIG'][0][2*i][20:-20].astype(dtype=np.float64)),verbose=0, max_nfev=2500)
+	res = least_squares(mincrosscol, [1.,0.,0], args=(wu[20:-20],meanu[20:-20],wd[20:-20],
+			meand[20:-20],f1['SIG'][0][2*i][20:-20]),verbose=0, max_nfev=2500)
 
+	# Creating the mask for the continuum fitting
+	mask = np.ones((len(meand))) 
+	# Excluding points where
+	mask[np.where(np.isnan(meand))] = 2 # spectrum is nan
+	mask[np.where(np.isnan(meaned))] = 2 # error is nan
+	mask[np.where(meaned <= 0)] = 2 # error is zero or negative
+	mask[0:20] = 2 # first 20 pixels
+	mask[-20:-1] = 2 # last 20 pixels
+	mask=mask.astype(int) # convert mask to integer
+	# Fit continuum to the mean down spectra
+	coef,cI,fm,idx = FitCon(data['WAVE'],meand,deg=4,niter=25,sig=meaned,swin=10,k1=0.1,k2=0.3,mask=mask)
+	data['CONTINUUM'] = cI
 	# save the scaling factor into scale
 	scale = res.x[0]
 
@@ -112,6 +130,7 @@ for i in range(int(f1['SPEC'].shape[1]/2)):
 	u2i = gen_corr_spec(wu, wd, u2 ,res.x)
 	u3i = gen_corr_spec(wu, wd, u3 ,res.x)
 	u4i = gen_corr_spec(wu, wd, u4 ,res.x)
+	d1,d2,d3,d4 = d1,d2,d3,d4
 	# Produce interpolated and scaled up error spectra
 	eu1i = gen_corr_spec(wu, wd, eu1 ,res.x)
 	eu2i = gen_corr_spec(wu, wd, eu2 ,res.x)
@@ -120,7 +139,6 @@ for i in range(int(f1['SPEC'].shape[1]/2)):
 
 	# Compute ratio for demodulation
 	R = u1i/d1 * d2/u2i * d3/u3i * u4i/d4
-
 	# Compute Stokes parameter (V/I, Q/I, U/I)
 	data['STOKES'] = (R**0.25 - 1.) / (R**0.25 + 1)
 
@@ -141,7 +159,7 @@ for i in range(int(f1['SPEC'].shape[1]/2)):
 	# Plotting demodulation plot for each order
 	ax[0].plot(data['WAVE'][15:-15],I1[15:-15], 'C0')
 	ax[0].plot(data['WAVE'][15:-15],I2[15:-15], 'C1')
-
+	ax[0].plot(data['WAVE'][15:-15],data['CONTINUUM'][15:-15]*4., linewidth=1, linestyle='dotted', color='r')
 	ax[1].plot(data['WAVE'][15:-15],data['STOKES'][15:-15], 'k')
 
 	ax[2].plot(data['WAVE'][15:-15], data['INTENS'][15:-15]/data['ERR_INTENS'][15:-15], linewidth=2, color='gray')
