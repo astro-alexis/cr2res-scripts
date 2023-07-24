@@ -6,6 +6,7 @@
 
 #!/usr/bin/env python3
 import os,sys
+import argparse
 import numpy as np
 from matplotlib import pyplot as plt
 from astropy.io import fits
@@ -15,10 +16,17 @@ from scipy.optimize import least_squares,minimize
 from scipy import interpolate
 import warnings 
 warnings.simplefilter('ignore', np.RankWarning)
-version_number = '2.1'
+version_number = '2.2'
 
+parser = argparse.ArgumentParser(description="cr2res demodulation routine",
+                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+parser.add_argument("-b", "--blaze", action="store_true", help="points to the blaze file")
+parser.add_argument("dir", help="Location of reduced files")
+parser.add_argument("-f", "--blazefile", default=".", help="Two-letter country code")
+args = vars(parser.parse_args())
 np.seterr(divide='ignore', invalid='ignore')
 
+print(args['blaze'])
 plt.rcParams['text.usetex'] = False
 
 def compute_jd(header):
@@ -153,6 +161,10 @@ chips = ['CHIP1.INT1','CHIP2.INT1','CHIP3.INT1']
 snrA,snrB = np.array([]), np.array([])
 chip = 0
 
+# Open blaze if needed
+if args['blaze'] != False:
+    blaze = fits.open(args['blazefile'])
+
 print('Starting demodulation')
 # Loop on detectors
 for ic in range(3):
@@ -181,6 +193,13 @@ for ic in range(3):
         data['eB1u'],data['eB2u'],data['eB3u'],data['eB4u'] = B1u[ch].data[order+'ERR'],B2u[ch].data[order+'ERR'],B3u[ch].data[order+'ERR'],B4u[ch].data[order+'ERR']
         data['eA1d'],data['eA2d'],data['eA3d'],data['eA4d'] = A1d[ch].data[order+'ERR'],A2d[ch].data[order+'ERR'],A3d[ch].data[order+'ERR'],A4d[ch].data[order+'ERR']
         data['eB1d'],data['eB2d'],data['eB3d'],data['eB4d'] = B1d[ch].data[order+'ERR'],B2d[ch].data[order+'ERR'],B3d[ch].data[order+'ERR'],B4d[ch].data[order+'ERR']
+        
+        if args['blaze'] != False:
+            bl = blaze[ch].data[order+'SPEC']
+            bl[0:20], bl[-20:] = bl[0:20]*0+bl[20],bl[-20:]*0+bl[-20]
+            bl = bl/np.nanmedian(bl)
+            data['A1u'],data['A2u'],data['A3u'],data['A4u'],data['B1u'],data['B2u'],data['B3u'],data['B4u'],data['A1d'],data['A2d'],data['A3d'],data['A4d'],data['B1d'],data['B2d'],data['B3d'],data['B4d'] = data['A1u']/bl,data['A2u']/bl,data['A3u']/bl,data['A4u']/bl,data['B1u']/bl,data['B2u']/bl,data['B3u']/bl,data['B4u']/bl,data['A1d']/bl,data['A2d']/bl,data['A3d']/bl,data['A4d']/bl,data['B1d']/bl,data['B2d']/bl,data['B3d']/bl,data['B4d']/bl
+            data['eA1u'],data['eA2u'],data['eA3u'],data['eA4u'],data['eB1u'],data['eB2u'],data['eB3u'],data['eB4u'],data['eA1d'],data['eA2d'],data['eA3d'],data['eA4d'],data['eB1d'],data['eB2d'],data['eB3d'],data['eB4d'] = data['eA1u']/bl,data['eA2u']/bl,data['eA3u']/bl,data['eA4u']/bl,data['eB1u']/bl,data['eB2u']/bl,data['eB3u']/bl,data['eB4u']/bl,data['eA1d']/bl,data['eA2d']/bl,data['eA3d']/bl,data['eA4d']/bl,data['eB1d']/bl,data['eB2d']/bl,data['eB3d']/bl,data['eB4d']/bl
 
         # Define reference wavelength for A and B
 	# The reference wavelength is UP beam
@@ -214,8 +233,8 @@ for ic in range(3):
         mask[-20:-1] = 2
         mask=mask.astype(int)
 
-        coefA,cIA,fmA,idxA = FitCon(data['WL_A'],meanIA*8.,deg=4,niter=25,sig=meanEIA,swin=10,k1=0.1,k2=0.3,mask=mask)
-        coefB,cIB,fMB,idxB = FitCon(data['WL_B'],meanIB*8.,deg=4,niter=25,sig=meanEIB,swin=10,k1=0.1,k2=0.3,mask=mask)
+        coefA,cIA,fmA,idxA = FitCon(data['WL_A'],meanIA*8.,deg=1,niter=25,sig=meanEIA,swin=10,k1=0.1,k2=0.3,mask=mask)
+        coefB,cIB,fMB,idxB = FitCon(data['WL_B'],meanIB*8.,deg=1,niter=25,sig=meanEIB,swin=10,k1=0.1,k2=0.3,mask=mask)
         data['CONTINUUM_A'], data['CONTINUUM_B'] = cIA, cIB
 	# Loop on all A and B beams: scale the spectrum a to the mean spectrum
         for k in ka:
@@ -275,6 +294,12 @@ for ic in range(3):
             if k[0] == 'A': col = c1
             else: col = c4 
             ax[0].plot(data['WL_'+k[0:1]][pp], data[k][pp], color=col,alpha=0.2)
+        # ax[0]: intensity
+        # ax[1]: normalized intensity
+        # ax[2]: Stokes
+        # ax[3]: Stokes/Ic
+        # ax[4]: Null
+
         ax[0].plot(data['WL_A'][pp], data['INTENS_A'][pp]/8., color=c0)
         ax[0].plot(data['WL_B'][pp], data['INTENS_B'][pp]/8., color=c5)
 
@@ -290,7 +315,9 @@ for ic in range(3):
 
         ax[3].plot(data['WL_A'][pp], data['STOKES_A'][pp]*data['INTENS_A'][pp]/data['CONTINUUM_A'][pp], color=c1, alpha=0.8)
         ax[3].plot(data['WL_B'][pp], data['STOKES_B'][pp]*data['INTENS_B'][pp]/data['CONTINUUM_B'][pp], color=c4, alpha=0.8)
+        ax[3].set_ylabel('Stokes ' +'$' + A1u[0].header["HIERARCH ESO INS POL TYPE"]+'$/$I_c$')
         ax[3].set_ylim(-PABnlim,PABnlim)
+
         ax[4].hlines(0, np.min(data['WL_A'][pp]), np.max(data['WL_A'][pp]), linestyle='dashed', linewidth=1, color="#dedede", zorder=10)
         ax[4].plot(data['WL_A'][pp], data['NULL_A'][pp], color=c2, alpha=0.5)
         ax[4].plot(data['WL_B'][pp], data['NULL_B'][pp], color=c5, alpha=0.5)
