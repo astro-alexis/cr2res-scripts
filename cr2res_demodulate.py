@@ -16,7 +16,7 @@ from scipy.optimize import least_squares,minimize
 from scipy import interpolate
 import warnings 
 warnings.simplefilter('ignore', np.RankWarning)
-version_number = '2.2'
+version_number = '3.0'
 
 parser = argparse.ArgumentParser(description="cr2res demodulation routine",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -202,7 +202,7 @@ for ic in range(3):
             data['eA1u'],data['eA2u'],data['eA3u'],data['eA4u'],data['eB1u'],data['eB2u'],data['eB3u'],data['eB4u'],data['eA1d'],data['eA2d'],data['eA3d'],data['eA4d'],data['eB1d'],data['eB2d'],data['eB3d'],data['eB4d'] = data['eA1u']/bl,data['eA2u']/bl,data['eA3u']/bl,data['eA4u']/bl,data['eB1u']/bl,data['eB2u']/bl,data['eB3u']/bl,data['eB4u']/bl,data['eA1d']/bl,data['eA2d']/bl,data['eA3d']/bl,data['eA4d']/bl,data['eB1d']/bl,data['eB2d']/bl,data['eB3d']/bl,data['eB4d']/bl
 
         # Define reference wavelength for A and B
-	# The reference wavelength is UP beam
+    	# The reference wavelength is UP beam
         data['WL_A'] = A1u[ch].data[order+'WL']
         data['wl_dA']  = A1d[ch].data[order+'WL'] 
         data['WL_B'] = B1u[ch].data[order+'WL']
@@ -219,6 +219,7 @@ for ic in range(3):
         ka,kb = [i for i in data.keys() if np.logical_and(len(i) == 3, 'A' in i) ], [i for i in data.keys() if np.logical_and(len(i) == 3, 'B' in i) ]
 	# Compute mean Stokes I for A and B in meanIA and meanIB
         meanIA,meanIB = sum(data[item] for item in ka)/8.,sum(data[item] for item in kb)/8.
+
 	# Compute mean error for Stokes I for A and B
         meanEIA,meanEIB = sum(data['e'+item]**2. for item in ka)**0.5 ,sum(data['e'+item]**2. for item in kb)**0.5
 	# Define a mask where there is no NaN in I and ERR. Where I>0, and without edges
@@ -264,6 +265,11 @@ for ic in range(3):
         keysA, keysB = [i for i in data.keys() if np.logical_and('e' in i, 'A' in i)],[i for i in data.keys() if np.logical_and('e' in i, 'B' in i)]
         data['ERR_A'], data['ERR_B'] = np.sqrt(sum(data[item]**2. for item in keysA)), np.sqrt(sum(data[item]**2. for item in keysB))
 
+        data['ERR_COMB'] = np.sqrt(data['ERR_A']**2 + interp1d(data['WL_B'],data['ERR_B'],bounds_error=False, fill_value='extrapolate')(data['WL_A'])**2)
+        data['NULL_COMB'] = data['NULL_A'] + interp1d(data['WL_B'],data['NULL_B'],bounds_error=False, fill_value='extrapolate')(data['WL_A'])
+        data['INTENS_COMB'] = data['INTENS_A'] + interp1d(data['WL_B'],data['INTENS_B'],bounds_error=False, fill_value='extrapolate')(data['WL_A'])
+        data['STOKES_COMB'] = data['STOKES_A'] + interp1d(data['WL_B'],data['STOKES_B'],bounds_error=False, fill_value='extrapolate')(data['WL_A'])
+
         sumEA = ((data["eA1u"]/data["A1u"])**2. + (data["eA2u"]/data["A2u"])**2. + (data["eA3u"]/data["A3u"])**2. + (data["eA4u"]/data["A4u"])**2. 
               +  (data["eA1d"]/data["A1d"])**2. + (data["eA2d"]/data["A2d"])**2. + (data["eA3d"]/data["A3d"])**2. + (data["eA4d"]/data["A4d"])**2.)**0.5
         sumEB = ((data["eB1u"]/data["B1u"])**2. + (data["eB2u"]/data["B2u"])**2. + (data["eB3u"]/data["B3u"])**2. + (data["eB4u"]/data["B4u"])**2. 
@@ -274,12 +280,13 @@ for ic in range(3):
         data['ERR_NULL_A']   = sumEA * 0.5 * RNA / (RNA+1.)**2. # Error spectrum on the null
         data['ERR_NULL_B']   = sumEB * 0.5 * RNB / (RNB+1.)**2. # Error spectrum on the null
 
+        data['ERR_STOKES_COMB'] = np.sqrt(data['ERR_STOKES_A']**2 + interp1d(data['WL_B'],data['ERR_STOKES_B'],bounds_error=False, fill_value='extrapolate')(data['WL_A'])**2)
+        data['ERR_NULL_COMB']   = np.sqrt(data['ERR_NULL_A']**2 + interp1d(data['WL_B'],data['ERR_NULL_B'],bounds_error=False, fill_value='extrapolate')(data['WL_A'])**2)
         snrA, snrB = np.append(snrA, np.nanpercentile(data['INTENS_A']/data['ERR_A'],98)), np.append(snrB,np.nanpercentile(data['INTENS_B']/data['ERR_B'],98))
         print("SNRA,SNRB = {:.1f},{:.1f}".format(np.nanpercentile(data['INTENS_A']/data['ERR_A'],98),np.nanpercentile(data['INTENS_B']/data['ERR_B'],98)))
-        PAB = np.abs(np.append(data['STOKES_A'],data['STOKES_B']))
-        PABlim = np.nanpercentile(PAB, 99.5)*1.5
+        PABlim = np.nanpercentile(np.abs(data['STOKES_COMB']), 99.5)*1.5
         PABn = np.abs(np.append(data['STOKES_A']*data['INTENS_A']/data['CONTINUUM_A'],data['STOKES_B']*data['INTENS_B']/data['CONTINUUM_B']))
-        PABnlim = np.nanpercentile(PABn, 99.5)*1.5
+        PABnlim = np.nanpercentile(np.abs(data['STOKES_COMB'] * data['INTENS_COMB'] / (2*data['CONTINUUM_A'])), 99.5)*1.5
 
         IAB = np.append(data['INTENS_A']/8.,data['INTENS_B']/8.)
         IABlim = np.nanpercentile(IAB, 99)*1.2
@@ -312,9 +319,10 @@ for ic in range(3):
         ax[2].fill_between(data['WL_A'][pp], data['STOKES_A'][pp]-0.5*data['ERR_STOKES_A'][pp],data['STOKES_A'][pp]+0.5*data['ERR_STOKES_A'][pp], color=c1, alpha=0.2)
         ax[2].plot(data['WL_B'][pp], data['STOKES_B'][pp], color=c4, alpha=0.8)
         ax[2].fill_between(data['WL_B'][pp], data['STOKES_B'][pp]-0.5*data['ERR_STOKES_B'][pp],data['STOKES_B'][pp]+0.5*data['ERR_STOKES_B'][pp], color=c4, alpha=0.2)
-
+        ax[2].plot(data['WL_A'][pp], data['STOKES_COMB'][pp], color="k", alpha=0.8)
         ax[3].plot(data['WL_A'][pp], data['STOKES_A'][pp]*data['INTENS_A'][pp]/data['CONTINUUM_A'][pp], color=c1, alpha=0.8)
         ax[3].plot(data['WL_B'][pp], data['STOKES_B'][pp]*data['INTENS_B'][pp]/data['CONTINUUM_B'][pp], color=c4, alpha=0.8)
+        ax[3].plot(data['WL_A'][pp], data['STOKES_COMB'][pp]*data['INTENS_A'][pp]/data['CONTINUUM_A'][pp], color="k", alpha=0.8)
         ax[3].set_ylabel('Stokes ' +'$' + A1u[0].header["HIERARCH ESO INS POL TYPE"]+'$/$I_c$')
         ax[3].set_ylim(-PABnlim,PABnlim)
 
@@ -333,7 +341,8 @@ for ic in range(3):
         keys_wanted = ['WL_A','WL_B','STOKES_A','STOKES_B', 'INTENS_A','INTENS_B',
                            'NULL_A','NULL_B','ERR_STOKES_A','ERR_STOKES_B','ERR_A','ERR_B',
                            'ERR_NULL_A','ERR_NULL_B', 'CHIP', 'DET', 'ORDER',
-                           'CONTINUUM_A','CONTINUUM_B']
+                           'CONTINUUM_A','CONTINUUM_B', 'INTENS_COMB', 'STOKES_COMB',
+                           'NULL_COMB','ERR_COMB','ERR_STOKES_COMB','ERR_NULL_COMB']
         if chip == 0: # if first segment, the big dictionary is isolated from 'data'
             data_all = {key: data[key] for key in keys_wanted}
         else: # after that, let's concatenate
@@ -369,8 +378,16 @@ col16 = fits.Column(name='CONTINUUM_B', format='D', array=data_all['CONTINUUM_B'
 col17 = fits.Column(name='CHIP', format='D', array=data_all['CHIP'])      
 col18 = fits.Column(name='DET', format='D', array=data_all['DET'])      
 col19 = fits.Column(name='ORDER', format='D', array=data_all['ORDER'])      
+col20 = fits.Column(name='INTENS_COMB', format='D', array=data_all['INTENS_COMB'])
+col21 = fits.Column(name='STOKES_COMB', format='D', array=data_all['STOKES_COMB'])
+col22 = fits.Column(name='NULL_COMB', format='D', array=data_all['NULL_COMB'])
+col23 = fits.Column(name='ERR_COMB', format='D', array=data_all['ERR_COMB'])
+col24 = fits.Column(name='ERR_STOKES_COMB', format='D', array=data_all['ERR_STOKES_COMB'])
+col25 = fits.Column(name='ERR_NULL_COMB', format='D', array=data_all['ERR_NULL_COMB'])
+
 table_hdu = fits.BinTableHDU.from_columns([col1,col2,col3,col4,col5,col6,col7,col8,col9,col10,
-                                           col11,col12,col13,col14,col15,col16,col17,col18,col19])
+                                           col11,col12,col13,col14,col15,col16,col17,col18,col19,
+                                           col20,col21,col22,col23,col24,col25,])
 hdul_output.append(table_hdu)
 hdul_output[0].header['MJD_MEAN_A'] =  JDA
 hdul_output[0].header['MJD_MEAN_B'] =  JDB 
