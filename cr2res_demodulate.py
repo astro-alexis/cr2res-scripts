@@ -16,7 +16,7 @@ from scipy.optimize import least_squares,minimize
 from scipy import interpolate
 import warnings 
 warnings.simplefilter('ignore', np.RankWarning)
-version_number = '3.0'
+version_number = '4.0'
 
 parser = argparse.ArgumentParser(description="cr2res demodulation routine",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -145,6 +145,55 @@ B4u = fits.open('cr2res_obs_pol_extractedB_4u.fits')
 
 # prepare output fits file
 primary_hdu = A1d[0] # keep primary HDU with header
+# Determine Stokes parameter and if it's linear or circular pol
+stokes_par = primary_hdu.header['HIERARCH ESO INS POL TYPE']
+if stokes_par == 'V':
+    poltype = 'cir'
+elif stokes_par == 'U':
+    poltype = 'lin'
+elif stokes_par == 'Q':
+    poltype = 'lin'
+else:
+    print('Unacceptable value of HIERARCH ESO INS POL TYPE')
+    stop
+    
+if poltype == 'lin':
+    print('Linear polarization: swapping subexposures')
+    A1d = fits.open('cr2res_obs_pol_extractedA_1d.fits')
+    A1u = fits.open('cr2res_obs_pol_extractedA_1u.fits')
+    A2d = fits.open('cr2res_obs_pol_extractedA_4d.fits')
+    A2u = fits.open('cr2res_obs_pol_extractedA_4u.fits')
+    A3d = fits.open('cr2res_obs_pol_extractedA_3d.fits')
+    A3u = fits.open('cr2res_obs_pol_extractedA_3u.fits')
+    A4d = fits.open('cr2res_obs_pol_extractedA_2d.fits')
+    A4u = fits.open('cr2res_obs_pol_extractedA_2u.fits')
+    B1d = fits.open('cr2res_obs_pol_extractedB_1d.fits')
+    B1u = fits.open('cr2res_obs_pol_extractedB_1u.fits')
+    B2d = fits.open('cr2res_obs_pol_extractedB_4d.fits')
+    B2u = fits.open('cr2res_obs_pol_extractedB_4u.fits')
+    B3d = fits.open('cr2res_obs_pol_extractedB_3d.fits')
+    B3u = fits.open('cr2res_obs_pol_extractedB_3u.fits')
+    B4d = fits.open('cr2res_obs_pol_extractedB_2d.fits')
+    B4u = fits.open('cr2res_obs_pol_extractedB_2u.fits')
+
+if poltype=='cir':
+    A1d = fits.open('cr2res_obs_pol_extractedA_1d.fits')
+    A1u = fits.open('cr2res_obs_pol_extractedA_1u.fits')
+    A2d = fits.open('cr2res_obs_pol_extractedA_2d.fits')
+    A2u = fits.open('cr2res_obs_pol_extractedA_2u.fits')
+    A3d = fits.open('cr2res_obs_pol_extractedA_3d.fits')
+    A3u = fits.open('cr2res_obs_pol_extractedA_3u.fits')
+    A4d = fits.open('cr2res_obs_pol_extractedA_4d.fits')
+    A4u = fits.open('cr2res_obs_pol_extractedA_4u.fits')
+    B1d = fits.open('cr2res_obs_pol_extractedB_1d.fits')
+    B1u = fits.open('cr2res_obs_pol_extractedB_1u.fits')
+    B2d = fits.open('cr2res_obs_pol_extractedB_2d.fits')
+    B2u = fits.open('cr2res_obs_pol_extractedB_2u.fits')
+    B3d = fits.open('cr2res_obs_pol_extractedB_3d.fits')
+    B3u = fits.open('cr2res_obs_pol_extractedB_3u.fits')
+    B4d = fits.open('cr2res_obs_pol_extractedB_4d.fits')
+    B4u = fits.open('cr2res_obs_pol_extractedB_4u.fits')
+
 hdul_output = fits.HDUList([primary_hdu]) # initialize output HDU list with primary HDU
 print('Target: \t\t' + A1d[0].header['OBJECT'])
 print('Date of 1st subexp: \t' + A1d[0].header['DATE-OBS'])
@@ -179,7 +228,7 @@ for ic in range(3):
     for io in range(len(orders)):
         print('Order: ' + orders[io][0:2])
         data = {'A1u' : np.empty(2048)}
-        fig,ax = plt.subplots(5, figsize=(14,12)) 
+        fig,ax = plt.subplots(6, figsize=(14,12)) 
         order = orders[io]
 
         # Load all the spectra: u for up beam, d for down, 1234 are subexposure number, AB are nodding position
@@ -330,8 +379,11 @@ for ic in range(3):
         ax[4].plot(data['WL_A'][pp], data['NULL_A'][pp], color=c2, alpha=0.5)
         ax[4].plot(data['WL_B'][pp], data['NULL_B'][pp], color=c5, alpha=0.5)
 
+        ax[5].hlines(0, np.min(data['WL_A'][pp]), np.max(data['WL_A'][pp]), linestyle='dashed', linewidth=1, color="#dedede", zorder=10)
+        ax[5].plot(data['WL_A'][pp], data['NULL_COMB'][pp]*data['INTENS_A'][pp]/data['CONTINUUM_A'][pp], color='k', alpha=0.7)
+
         ax[2].set_ylim(-PABlim,PABlim),ax[4].set_ylim(-PABlim,PABlim),ax[0].set_ylim(-0.1,IABlim)
-        ax[4].set_xlabel('Wavelength [nm]'), ax[4].set_ylabel('Null spectrum')
+        ax[5].set_xlabel('Wavelength [nm]'), ax[4].set_ylabel('Null spectrum'), ax[5].set_ylabel('$N/I_c$')
         ax[2].set_ylabel('Stokes ' +'$' + A1u[0].header["HIERARCH ESO INS POL TYPE"]+'$/$I$'),ax[0].set_ylabel('Stokes $I$')
         plt.savefig('plot-demodulation_order'+str(orders[io][0:2])+'-det'+str(ic+1)+'.png')
         plt.close()
