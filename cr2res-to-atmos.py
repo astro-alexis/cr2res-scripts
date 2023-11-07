@@ -20,7 +20,7 @@ import warnings
 import sys
 warnings.filterwarnings('ignore')
 
-data = {'script_version' : '2.0'}
+data = {'script_version' : '2.2'}
 
 # Read the filelist linking raw to reduced files
 filelist =  np.loadtxt('filelist-raw-to-reduced.ascii', skiprows=1, dtype="object")
@@ -73,8 +73,7 @@ data['snr'] = np.zeros((nord,nobs))
 data['airmass'] = np.zeros((nobs))
 data['bjd_tdb'] = np.zeros((nobs))
 data['berv'] = np.zeros((nobs))
-data['orders'] = np.arange((nord))+1
-
+data['orders'] = np.empty((nord), dtype="object")
 
 # MAIN LOOP
 for i in range(len(rawf)):
@@ -123,6 +122,7 @@ for i in range(len(rawf)):
             if np.logical_and(np.nanmedian(wave) < np.max(wwm),np.nanmedian(wave) > np.min(wwm)):
                 waveM = wwm[pp]
                 refflux = ffm[pp]
+        data['orders'][index] = o
         data['wave'][index,i,:] = wave
         data['wave_model'][index,i,:] = waveM
         data['spec'][index,i,:] = flux
@@ -139,13 +139,14 @@ for i in range(len(rawf)):
      # Convert JD_UTC to UTC_TDB
     utc_tbd = utc_tdb.JDUTC_to_BJDTDB(jd, starname=raw[0].header['OBJECT'],lat=raw[0].header['HIERARCH ESO TEL GEOLAT'],
                                 longi=raw[0].header['HIERARCH ESO TEL GEOLON'], alt=raw[0].header['HIERARCH ESO TEL GEOELEV'])
-    data['bjd_tdb'] = np.squeeze(utc_tbd[0])
+    data['bjd_tdb'][i] = np.squeeze(utc_tbd[0])
 
     # Compute BERV
     bcvel = get_BC_vel(JDUTC=jd, starname=raw[0].header['OBJECT'], lat=raw[0].header['HIERARCH ESO TEL GEOLAT'], 
                                 longi=raw[0].header['HIERARCH ESO TEL GEOLON'], alt=raw[0].header['HIERARCH ESO TEL GEOELEV'], zmeas=0.0)
     data['berv'][i] = np.squeeze(bcvel[0])
     # end of loop on files ##########################
+
 
 wii = np.argsort(data['wave'][:,0,0])
 
@@ -154,7 +155,7 @@ data['wave_model'] = data['wave_model'][wii,:,:]
 data['spec'] = data['spec'][wii,:,:]
 data['err'] = data['err'][wii,:,:]
 data['snr'] = data['snr'][wii,:]
-
+data['orders'] = data['orders'][wii]
 
 with open(sys.argv[1], 'wb') as specfile:
     pickle.dump(data,specfile)
